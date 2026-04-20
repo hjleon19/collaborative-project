@@ -1,0 +1,86 @@
+---
+title: "Vignette"
+author: "hec and nikki"
+format: html
+editor: visual
+---
+
+```{r}
+source("R/my_functions.R")
+
+# Define the GitHub link
+github_url <- "https://raw.githubusercontent.com/hjleon19/collaborative-project/refs/heads/master/S3%20Table.txt"
+
+# Step 1: Load data from the URL instead of the local path
+deg <- load_deg_table(github_url)
+
+# Step 2: Volcano plot
+volcano_plot(
+  data = deg,
+  logFC = "logFC",
+  pval = "padj",
+  alpha = 0.05,
+  lfc_thresh = 1,
+  already_adjusted = TRUE,
+  title = "Volcano Plot: vEDS vs Controls"
+)
+
+# Step 3: Heatmap
+heatmap_plot(deg = deg, title = "Hierarchical Clustering of DEGs")
+```
+
+```{r}
+source("R/my_functions.R")
+
+# Step 1: Load DEG table
+deg <- load_deg_table(
+  "https://raw.githubusercontent.com/hjleon19/collaborative-project/refs/heads/master/S3%20Table.txt"
+)
+
+# Step 4: PPI Network
+ppi_network(
+  deg             = deg,
+  score_threshold = 400,
+  title           = "PPI Network of DEGs: vEDS vs Controls"
+)
+```
+
+\
+
+```{r}
+deg <- load_deg_table(
+  "https://raw.githubusercontent.com/hjleon19/collaborative-project/refs/heads/master/S3%20Table.txt"
+)
+
+
+# Basic usage - top 30 hubs at medium confidence
+hub_result <- ppi_hub_network(
+  deg   = deg,
+  title = "Top 30 Hub Proteins: vEDS vs Controls"
+)
+
+# Top 20 at high confidence only
+hub_result <- ppi_hub_network(
+  deg             = deg,
+  score_threshold = 700,
+  top_n           = 20,
+  title           = "Top 20 High-Confidence Hub Proteins"
+)
+
+# Up-regulated hubs only
+hub_result <- ppi_hub_network(
+  deg   = deg[deg$logFC > 0, ],
+  top_n = 20,
+  title = "Top 20 Up-regulated Hub Proteins"
+)
+
+# Down-regulated hubs only
+hub_result <- ppi_hub_network(
+  deg   = deg[deg$logFC < 0, ],
+  top_n = 20,
+  title = "Top 20 Down-regulated Hub Proteins"
+)
+```
+
+\
+\
