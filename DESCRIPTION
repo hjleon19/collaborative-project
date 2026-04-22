@@ -1,16 +1,32 @@
-Package: CollaborativeProject
-Type: Package
-Title: What the Package Does (Title Case)
+Package: collaborativeproject
+Title: DEG Visualization and Pathway Analysis for vEDS Fibroblasts
 Version: 0.1.0
-Authors@R: c(
-    person(
-      "Jane", "Doe",
-      email = "jane@example.com",
-      role = c("aut", "cre")
-    )
-  )
-Description: More about what it does (maybe more than one line).
-    Continuation lines should be indented.
-License: What license is it under?
+Authors@R:
+    c(person("Hector", "Leon", role = c("aut", "cre"),
+             email = "your@email.com"),
+      person("Nikhila", "Kalapatapu", role = "aut",
+             email = "your@email.com"))
+Description: A workflow package for loading, visualizing, and analyzing
+    differentially expressed genes (DEGs) from vEDS patient skin fibroblasts.
+    Provides functions for volcano plot generation and automated KEGG pathway
+    enrichment analysis with pathview visualization.
+License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
+RoxygenNote: 7.3.3
+Imports:
+    ggplot2,
+    stats,
+    graphics,
+    grDevices,
+    tools,
+    utils
+Suggests:
+    BiocManager,
+    pathview,
+    org.Hs.eg.db,
+    clusterProfiler,
+    AnnotationDbi,
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr

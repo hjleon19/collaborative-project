@@ -1,86 +1,231 @@
 ---
-title: "Vignette"
+title: "Differential Gene Expression Analysis to Pathway Enrichment:Ehlers-Danlos Syndrome data set"
 author: "hec and nikki"
 format: html
 editor: visual
 ---
 
-```{r}
-source("R/my_functions.R")
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(collaborativeproject)
+```
 
-# Define the GitHub link
+**Overview**
+
+This vignette walks through a complete bioinformatics workflow applied to a publicly available differential gene expression (DEG) dataset from **vascular Ehlers-Danlos Syndrome (vEDS)** skin fibroblasts. The workflow has three main steps:
+
+1.  **Load** the DEG table from a public repository
+2.  **Visualize** differential expression using a volcano plot
+3.  **Identify biological pathways** overrepresented among the DEGs using KEGG enrichment analysis
+
+Each section explains what the code is doing and why, so you can follow along even if this is your first time working with transcriptomic data.
+
+**Background: What is vEDS?**
+
+Vascular Ehlers-Danlos Syndrome (vEDS) is a rare and severe connective tissue disorder caused by mutations in the **COL3A1** gene, which encodes **type III collagen** — a structural protein critical for the integrity of blood vessels, skin, and internal organs. The disease is associated with a high risk of spontaneous arterial rupture, making it one of the most life-threatening subtypes of EDS.
+
+Understanding which genes are dysregulated in vEDS fibroblasts can reveal the molecular mechanisms underlying the disease and point toward potential therapeutic targets.
+
+```{r collagen_graphic, echo=FALSE, fig.cap="Left = normal colllagen right = vEDS collagen", out.width="100%"}
+knitr::include_graphics("https://raw.githubusercontent.com/hjleon19/collaborative-project/master/Collagen.png")
+```
+
+**Dataset Information**
+
+The data used in this analysis comes from a published microarray study comparing skin fibroblasts from vEDS patients with those from healthy controls. Raw and processed data are publicly available in the GEO database under accession [**GSE102042**](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE102042).
+
+**Participants**
+
+The study included **12 individuals: 3 vEDS patients and 9 age-matched healthy controls**. Each vEDS patient carried a distinct dominant-negative structural mutation in COL3A1:
+
+| Patient | Mutation | Type |
+|----|----|----|
+| P1 | c.709G\>A (p.Gly237Arg) | Missense |
+| P2 | c.951+6T\>C | Splice site (in-frame skipping of exon 14) |
+| P3 | c.1835G\>A (p.Gly612Asp) | Missense |
+
+All mutations affect glycine residues within the collagen triple-helix domain or alter splicing, disrupting the structural integrity of the collagen triple helix.
+
+**Cell Type and Culture**
+
+-   **Cell type:** Skin fibroblasts derived from skin punch biopsies
+-   **Culture medium:** Earle's Modified Eagle Medium (MEM) with 2 mM L-glutamine, 10% FBS, and 100 μg/ml penicillin/streptomycin
+-   **Conditions:** 37°C, 5% CO₂
+-   **Passage:** Cells were harvested between the **3rd and 6th passage** after expansion to full confluency using 0.25% trypsin / 0.02% EDTA
+
+**Transcriptome Profiling**
+
+Gene expression was measured using the **Affymetrix Gene 1.0 ST** microarray platform. RNA was extracted using the **Qiagen RNeasy kit** and quality was assessed on an **Agilent 2100 BioAnalyzer**. From 250 ng of total RNA per sample, labeled targets were prepared and hybridized to the arrays for 16 hours at 45°C.
+
+Raw array data were processed using **Partek Genomics Suite** with the following pipeline:
+
+1.  **Background correction and normalization:** Robust Multiarray Average (RMA)
+2.  **Transformation:** Data converted to log₂ scale
+3.  **Quality control:** Principal Component Analysis (PCA) used to identify outliers and batch effects
+
+**DEG Selection Criteria**
+
+To be included in the final DEG table, a gene had to meet **all three** of the following criteria:
+
+-   **Statistical test:** One-way ANOVA with $p < 0.05$
+-   **Fold-change threshold:** $\geq 1.5$-fold change (or $\leq -1.5$)
+-   **Multiple testing correction:** Benjamini–Hochberg (BH) FDR $< 0.05$
+
+This yielded **969 DEGs total: 281 up-regulated and 688 down-regulated** in vEDS patients relative to controls. Microarray results were validated via **qPCR** using the $2^{-(\Delta\Delta Ct)}$ method, normalized against four reference genes: HPRT, GAPDH, ATP5B, and CYC1.
+
+**Step 1 — Load Data**
+
+**What this function does**
+
+`load_deg_table()` reads the DEG table from a local file or a URL. It handles both comma-separated (`.csv`) and tab-delimited (`.txt`) files and tries UTF-8 encoding first, falling back to latin1 for files with special characters.
+
+After reading the file, it:
+
+-   **Skips the title row** (row 1 in the file) and uses row 2 as the header
+-   **Standardizes column names** to `Row`, `TranscriptID`, `gene_assignment`, `GeneSymbol`, `RefSeq`, `padj`, and `logFC` — regardless of what the original file uses
+-   **Converts** `padj` and `logFC` to numeric and **removes any rows with missing values** in either column
+-   **Prints a summary** so you can verify the data loaded correctly
+
+> **Why skip row 1?** The S3 Table file has a human-readable title on the first line (e.g., *"S3 Table. Full list of DEGs..."*). `skip = 1` tells R to ignore that line before reading the column headers.
+
+```{r load}
 github_url <- "https://raw.githubusercontent.com/hjleon19/collaborative-project/refs/heads/master/S3%20Table.txt"
-
-# Step 1: Load data from the URL instead of the local path
 deg <- load_deg_table(github_url)
+```
 
-# Step 2: Volcano plot
+After running this chunk, `deg` is a data frame with **969 rows** (one per DEG) and 7 columns. The `logFC` column contains log₂ fold-change values (positive = higher expression in vEDS, negative = lower), and `padj` contains BH-corrected p-values.
+
+**Step 2 — Volcano Plot**
+
+**What is a volcano plot?**
+
+A volcano plot is a standard visualization in differential expression analysis. Each point represents one gene:
+
+-   **X-axis:** log₂ fold change — how much expression changed between vEDS and controls. Positive values = up-regulated in vEDS; negative = down-regulated.
+-   **Y-axis:** $-\log_{10}(\text{FDR-adjusted p-value})$ — statistical significance. The more significant a gene, the **higher** it appears on the plot.
+
+Genes that are both statistically significant **and** strongly up or down-regulated appear in the upper left and upper right "arms" of the volcano shape.
+
+```{r, echo=FALSE, fig.cap="Example of how to read a volcano plot. Genes in the upper corners are the most biologically interesting — they show both a large change in expression and high statistical confidence.", out.width="60%"}
+knitr::include_graphics("https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/refs/heads/master/volcano_explainer.png")
+```
+
+**What this function does**
+
+`volcano_plot()` takes the DEG data frame and plots only the genes that pass both a fold-change and a significance threshold. Key parameters:
+
+| Parameter | Value used | Meaning |
+|--------------------------|--------------------------|---------------------|
+| `logFC` | `"logFC"` | Column name for fold-change values |
+| `pval` | `"padj"` | Column name for p-values |
+| `alpha` | `0.05` | Significance threshold (dashed horizontal line) |
+| `lfc_thresh` | `1` | Minimum \|log₂FC\| to color a point (dashed vertical lines) |
+| `already_adjusted` | `TRUE` | Skips BH correction — our p-values are already FDR-adjusted in the S3 table |
+
+The function classifies each gene as **up-regulated** (red), **down-regulated** (blue), or **not significant** (NC, not plotted). The count of genes in each direction is printed to the console and annotated on the plot.
+
+> **Note:** Setting `already_adjusted = TRUE` is important here. If you set it to `FALSE`, the function would apply BH correction a second time to values that are already corrected, making the thresholds overly conservative.
+
+```{r volcano}
 volcano_plot(
-  data = deg,
-  logFC = "logFC",
-  pval = "padj",
-  alpha = 0.05,
-  lfc_thresh = 1,
-  already_adjusted = TRUE,
-  title = "Volcano Plot: vEDS vs Controls"
-)
-
-# Step 3: Heatmap
-heatmap_plot(deg = deg, title = "Hierarchical Clustering of DEGs")
-```
-
-```{r}
-source("R/my_functions.R")
-
-# Step 1: Load DEG table
-deg <- load_deg_table(
-  "https://raw.githubusercontent.com/hjleon19/collaborative-project/refs/heads/master/S3%20Table.txt"
-)
-
-# Step 4: PPI Network
-ppi_network(
-  deg             = deg,
-  score_threshold = 400,
-  title           = "PPI Network of DEGs: vEDS vs Controls"
+  data             = deg,
+  logFC            = "logFC",   # column name for fold change
+  pval             = "padj",    # column name for p-value
+  alpha            = 0.05,      # significance threshold
+  lfc_thresh       = 1,         # minimum fold change to show
+  already_adjusted = TRUE,      # p-values are already BH-corrected in S3 table
+  title            = "Volcano Plot: vEDS vs Controls"
 )
 ```
 
-\
+The resulting plot shows a pronounced downward shift — the larger number of blue (down-regulated) genes is consistent with the 688 down vs. 281 up breakdown reported in the original paper.
 
-```{r}
-deg <- load_deg_table(
-  "https://raw.githubusercontent.com/hjleon19/collaborative-project/refs/heads/master/S3%20Table.txt"
-)
+**Step 3 — Pathway Analysis**
 
+**Why pathway analysis?**
 
-# Basic usage - top 30 hubs at medium confidence
-hub_result <- ppi_hub_network(
-  deg   = deg,
-  title = "Top 30 Hub Proteins: vEDS vs Controls"
-)
+A list of 969 individual genes is hard to interpret biologically. **Pathway enrichment analysis** asks a higher-level question: are the genes in our list distributed randomly across known biological pathways, or do they cluster in specific processes more than we'd expect by chance?
 
-# Top 20 at high confidence only
-hub_result <- ppi_hub_network(
-  deg             = deg,
-  score_threshold = 700,
-  top_n           = 20,
-  title           = "Top 20 High-Confidence Hub Proteins"
-)
+We use **KEGG (Kyoto Encyclopedia of Genes and Genomes)**, a curated database of biological pathways, to test this statistically. This is done using the `enrichKEGG()` function from the `clusterProfiler` package, which performs a **Fisher's exact test** for each pathway and corrects for multiple testing using the BH method.
 
-# Up-regulated hubs only
-hub_result <- ppi_hub_network(
-  deg   = deg[deg$logFC > 0, ],
-  top_n = 20,
-  title = "Top 20 Up-regulated Hub Proteins"
-)
+> **Important distinction:** The top 10 up/down-regulated genes printed below are sorted purely by fold-change magnitude for display purposes — they are **not** the input to the pathway enrichment. The enrichment runs on the **entire filtered DEG list** (all genes with `padj < 0.01` and `|logFC| > 0.2`). The pathways that emerge are determined entirely by which genes are in your data. Running this on a different dataset would produce different pathways.
 
-# Down-regulated hubs only
-hub_result <- ppi_hub_network(
-  deg   = deg[deg$logFC < 0, ],
-  top_n = 20,
-  title = "Top 20 Down-regulated Hub Proteins"
+**What this function does**
+
+`pathway_analysis()` carries out four steps:
+
+1.  **Filters** the DEG table to genes meeting a stricter FDR threshold (`padj < 0.01`) and a minimum fold-change (`|logFC| > 0.2`). These thresholds focus enrichment on the most confident results.
+2.  **Prints** the top `n` up and down-regulated genes sorted by fold-change magnitude.
+3.  **Maps** gene symbols (e.g., `COL3A1`) to numeric **Entrez IDs**, which KEGG requires. This step uses the `org.Hs.eg.db` human genome annotation database. Non-coding RNAs (e.g., SNORD, RNU genes) often fail to map — this is expected and normal.
+4.  **Runs KEGG enrichment** and returns the top `n_pathways` results ranked by adjusted p-value, along with a named vector of logFC values that `pathview` will use to color pathway diagrams.
+
+```{r pathway_run}
+library(pathview)
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+library(clusterProfiler)
+
+pathway_results <- pathway_analysis(
+  deg         = deg,
+  top_n       = 10,    # number of top up/down genes to print
+  n_pathways  = 3,     # number of top KEGG pathways to return
+  padj_cutoff = 0.01,  # stricter FDR threshold for enrichment input
+  lfc_cutoff  = 0.2    # minimum |logFC| for enrichment input
 )
 ```
 
-\
-\
+**How pathways are ranked**
+
+Pathways are ranked by their **BH-adjusted p-value** from the Fisher's exact test. A pathway ranks highly when a disproportionately large fraction of your filtered DEGs belong to it relative to the total size of that pathway in the KEGG database. The `n_pathways = 3` argument simply slices the top 3 from this ranked list — it does not influence the statistics themselves.
+
+**Step 4 — Pathway Maps**
+
+`pathview` downloads the KEGG pathway diagrams and overlays your logFC values directly onto them. Genes are colored on the diagram:
+
+-   **Red** = up-regulated in vEDS
+-   **Green/Blue** = down-regulated in vEDS
+-   **White/grey** = gene is in the pathway but not in your DEG list
+
+The diagrams are saved as PNG files in your working directory with the suffix `vEDS_1_`, `vEDS_2_`, and `vEDS_3_` followed by the pathway name.
+
+> **Why is `pathview` called here and not inside `pathway_analysis()`?** `pathview` requires its internal data objects to be available via `library(pathview)` at the top level of the session. Calling it from inside a package function can cause it to fail silently, so we call it directly in the vignette after loading the library.
+
+```{r pathview_run, results='hide', message=FALSE, warning=FALSE}
+for (i in seq_len(nrow(pathway_results$top_pathways))) {
+  pathview(
+    gene.data  = pathway_results$gene_data,
+    pathway.id = pathway_results$top_pathways$ID[i],
+    species    = "hsa",
+    out.suffix = paste0("vEDS_", i, "_",
+                        gsub(" ", "_", pathway_results$top_pathways$Description[i])),
+    kegg.native = TRUE
+  )
+}
+```
+
+The three pathway maps are saved to your working directory. To display them inline here, they have been uploaded to the repository!
+
+```{r pathway-map-1, echo=FALSE, fig.cap="Top enriched KEGG pathway — logFC values overlaid on the KEGG diagram. Red = up-regulated, blue/green = down-regulated in vEDS.", out.width="100%"}
+knitr::include_graphics("https://raw.githubusercontent.com/hjleon19/collaborative-project/master/hsa04110.vEDS_1_Cell_cycle.png")
+```
+
+```{r pathway-map-2, echo=FALSE, fig.cap="Second enriched KEGG pathway.", out.width="100%"}
+knitr::include_graphics("https://raw.githubusercontent.com/hjleon19/collaborative-project/master/hsa03030.vEDS_2_DNA_replication.png")
+```
+
+```{r pathway-map-3, echo=FALSE, fig.cap="Third enriched KEGG pathway.", out.width="100%"}
+knitr::include_graphics("https://raw.githubusercontent.com/hjleon19/collaborative-project/master/hsa03430.vEDS_3_Mismatch_repair.png")
+```
+
+**Summary**
+
+This workflow demonstrates how to move from a raw list of DEGs to interpretable biological conclusions:
+
+| Step | Function | Input | Output |
+|------------------|-------------------|------------------|------------------|
+| Load data | `load_deg_table()` | GitHub URL | 969-row DEG data frame |
+| Visualize | `volcano_plot()` | DEG data frame | Colored volcano plot |
+| Enrichment | `pathway_analysis()` | DEG data frame | Top 3 KEGG pathways + logFC vector |
+| Pathway maps | `pathview()` | logFC vector + pathway IDs | PNG diagrams |
+
+The pathways identified here are driven entirely by the DEGs in the vEDS dataset — running the same code on a different disease dataset would produce different enriched pathways, reflecting the biology of that condition.
